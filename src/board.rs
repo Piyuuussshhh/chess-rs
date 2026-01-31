@@ -1,9 +1,10 @@
-use bevy::prelude::*;
 use crate::components::*;
+use bevy::prelude::*;
 
 // Constants for positioning
 pub const TILE_SIZE: f32 = 100.0;
 pub const BOARD_SIZE: f32 = TILE_SIZE * 8.0;
+pub const OFFSET: f32 = BOARD_SIZE / 2.0;
 pub const SCREEN_WIDTH: u32 = 800;
 pub const SCREEN_HEIGHT: u32 = 800;
 
@@ -97,6 +98,10 @@ fn spawn_pieces(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..Default::default()
                 },
                 Piece { kind, color },
+                Square {
+                    x: x as u8,
+                    y: y as u8,
+                },
             ));
         };
 

@@ -1,9 +1,13 @@
 use bevy::prelude::*;
 
-use crate::board::*;
+use crate::{
+    board::{BoardPlugin, SCREEN_HEIGHT, SCREEN_WIDTH},
+    systems::GamePlugin,
+};
 
 mod board;
 mod components;
+mod systems;
 
 fn main() {
     App::new()
@@ -16,5 +20,6 @@ fn main() {
             ..default()
         }))
         .add_plugins(BoardPlugin)
+        .add_plugins(GamePlugin)
         .run();
 }
