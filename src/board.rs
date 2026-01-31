@@ -5,8 +5,6 @@ use bevy::prelude::*;
 pub const TILE_SIZE: f32 = 100.0;
 pub const BOARD_SIZE: f32 = TILE_SIZE * 8.0;
 pub const OFFSET: f32 = BOARD_SIZE / 2.0;
-pub const SCREEN_WIDTH: u32 = 800;
-pub const SCREEN_HEIGHT: u32 = 800;
 
 pub struct BoardPlugin;
 

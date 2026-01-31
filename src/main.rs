@@ -1,20 +1,23 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, window::WindowMode};
 
 use crate::{
-    board::{BoardPlugin, SCREEN_HEIGHT, SCREEN_WIDTH},
+    board::BoardPlugin,
+    resources::GameState,
     systems::GamePlugin,
 };
 
 mod board;
 mod components;
+mod resources;
 mod systems;
 
 fn main() {
     App::new()
+        .init_resource::<GameState>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Rust Chess".into(),
-                resolution: (SCREEN_WIDTH, SCREEN_HEIGHT).into(),
+                title: "Chess".into(),
+                mode: WindowMode::Windowed,
                 ..default()
             }),
             ..default()

@@ -1,6 +1,6 @@
 use crate::{
     board::{OFFSET, TILE_SIZE},
-    components::{Piece, PieceColor, Selected, SelectedFilter, Square},
+    components::{Piece, PieceColor, Selected, SelectedFilter, Square}, resources::GameState,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -26,6 +26,7 @@ fn input_system(
     camera_query: Query<(&Camera, &GlobalTransform)>,
     mut piece_query: Query<(Entity, &Piece, &mut Square)>,
     selected_piece_query: Query<Entity, With<Selected>>,
+    mut game_state: ResMut<GameState>
 ) {
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
@@ -75,43 +76,67 @@ fn input_system(
 
     // Decision & Execution
     match (selected_piece, clicked_piece) {
-        // Case 1: Nothing selected yet -> user clicks a piece => Select the piece.
-        (None, Some((entity, _))) => {
+        // Case 1: Nothing selected yet -> player clicks a piece => Select the piece ONLY if its one of the player's pieces.
+        (None, Some((entity, piece_color))) => {
+            if piece_color != game_state.turn {
+                return;
+            }
             commands.entity(entity).insert(Selected);
         },
-        // Case 2: A piece is selected -> user clicks an empty square => Move the piece to the empty square.
-        (Some((entity, _)), None) => {
+        // Case 2: A piece is selected -> player clicks an empty square => Move the piece to the empty square.
+        (Some((entity, selected_piece_color)), None) => {
+            if selected_piece_color != game_state.turn {
+                return;
+            }
+
             if let Ok((_, _, mut square)) = piece_query.get_mut(entity) {
                 square.x = x;
                 square.y = y;
+
+                // Turn completed, switch turns.
+                game_state.turn = match game_state.turn {
+                    PieceColor::White => PieceColor::Black,
+                    PieceColor::Black => PieceColor::White,
+                }
             }
 
             // Deselect after moving it.
             commands.entity(entity).remove::<Selected>();
         },
-        // Case 3: A piece is selected -> user clicks on a square with a piece => 3 possibilities.
+        // Case 3: A piece is selected -> player clicks on a square with a piece => 3 possibilities.
         (Some((currently_selected_entity, currently_selected_piece_color)), Some((target_entity, target_piece_color))) => {
-            // Possibility 1: The user clicked on the same piece => Deselect the piece.
+            // If currently selected piece is not one of the player's pieces, do nothing.
+            if currently_selected_piece_color != game_state.turn {
+                return;
+            }
+
+            // Possibility 1: The player clicked on the same piece => Deselect the piece.
             if currently_selected_entity == target_entity {
                 commands.entity(currently_selected_entity).remove::<Selected>();
             }
-            // Possibility 2: The user clicked on another piece from their own pieces => Deselect the currently selected piece and select the new piece.
+            // Possibility 2: The player clicked on another piece from their own pieces => Deselect the currently selected piece and select the new piece.
             else if currently_selected_piece_color == target_piece_color {
                 commands.entity(currently_selected_entity).remove::<Selected>();
                 commands.entity(target_entity).insert(Selected);
             }
-            // Possibility 3: the user clicked on an enemy piece => Despawn (capture) the enemy piece, move the currently selected piece to the enemy piece's position then deselect it
+            // Possibility 3: the player clicked on an enemy piece => Despawn (capture) the enemy piece, move the currently selected piece to the enemy piece's position then deselect it
             else {
                 commands.entity(target_entity).despawn();
 
                 if let Ok((_, _, mut square)) = piece_query.get_mut(currently_selected_entity) {
                     square.x = x;
                     square.y = y;
+
+                    // Turn completed, switch turns.
+                    game_state.turn = match game_state.turn {
+                        PieceColor::White => PieceColor::Black,
+                        PieceColor::Black => PieceColor::White,
+                    }
                 }
                 commands.entity(currently_selected_entity).remove::<Selected>();
             }
         },
-        // TODO Case 4: Something is selected or not it doesn't matter -> User clicked somewhere outside the board => Maybe clicked the UI, check.
+        // TODO Case 4: Something is selected or not it doesn't matter -> Player clicked somewhere outside the board => Maybe clicked the UI, check.
         _ => {},
     }
 }
@@ -122,7 +147,7 @@ fn highlight_selected_piece_system(
     previously_selected_square_query: Query<Entity, With<SelectedFilter>>,
     any_selected_square_query: Query<&Selected>,
 ) {
-    // If the user just selected a square with a piece on it.
+    // If the player just selected a square with a piece on it.
     if !just_selected_square_query.is_empty() {
         // Deleting old selected filter.
         for entity in previously_selected_square_query.iter() {
@@ -132,11 +157,6 @@ fn highlight_selected_piece_system(
         for square in just_selected_square_query.iter() {
             let select_filter_center_x = (square.x as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
             let select_filter_center_y = (square.y as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
-            println!(
-                "Spawning Highlight at: {}, {}",
-                select_filter_center_x, select_filter_center_y
-            );
-
             commands.spawn((
                 Sprite {
                     color: Color::srgba(0.6, 0.1, 0.8, 0.5),
@@ -148,7 +168,7 @@ fn highlight_selected_piece_system(
             ));
         }
     }
-    // If the user clicks outside the board or on a square with no piece on it.
+    // If the player clicks outside the board or on a square with no piece on it.
     else if any_selected_square_query.is_empty() && !previously_selected_square_query.is_empty() {
         for entity in previously_selected_square_query.iter() {
             commands.entity(entity).despawn();
