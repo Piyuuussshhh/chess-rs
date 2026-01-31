@@ -1,6 +1,8 @@
 use crate::{
-    board::{OFFSET, TILE_SIZE},
-    components::{Piece, PieceColor, Selected, SelectedFilter, Square}, resources::GameState,
+    board::{OFFSET, TILE_SIZE, get_world_position},
+    components::{MovedFilter, Piece, PieceColor, Selected, SelectedFilter, Square},
+    events::MoveMadeEvent,
+    resources::GameState,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -15,7 +17,8 @@ impl Plugin for GamePlugin {
                 highlight_selected_piece_system.after(input_system),
                 piece_movement_system,
             ),
-        );
+        )
+        .add_observer(on_move_made);
     }
 }
 
@@ -26,7 +29,7 @@ fn input_system(
     camera_query: Query<(&Camera, &GlobalTransform)>,
     mut piece_query: Query<(Entity, &Piece, &mut Square)>,
     selected_piece_query: Query<Entity, With<Selected>>,
-    mut game_state: ResMut<GameState>
+    mut game_state: ResMut<GameState>,
 ) {
     if !mouse_input.just_pressed(MouseButton::Left) {
         return;
@@ -81,8 +84,9 @@ fn input_system(
             if piece_color != game_state.turn {
                 return;
             }
+
             commands.entity(entity).insert(Selected);
-        },
+        }
         // Case 2: A piece is selected -> player clicks an empty square => Move the piece to the empty square.
         (Some((entity, selected_piece_color)), None) => {
             if selected_piece_color != game_state.turn {
@@ -90,6 +94,7 @@ fn input_system(
             }
 
             if let Ok((_, _, mut square)) = piece_query.get_mut(entity) {
+                let (prev_x, prev_y) = (square.x, square.y);
                 square.x = x;
                 square.y = y;
 
@@ -97,14 +102,23 @@ fn input_system(
                 game_state.turn = match game_state.turn {
                     PieceColor::White => PieceColor::Black,
                     PieceColor::Black => PieceColor::White,
-                }
+                };
+                // Send the move made event.
+                commands.trigger(MoveMadeEvent {
+                    piece: entity,
+                    start: (prev_x, prev_y),
+                    end: (x, y),
+                });
             }
 
             // Deselect after moving it.
             commands.entity(entity).remove::<Selected>();
-        },
+        }
         // Case 3: A piece is selected -> player clicks on a square with a piece => 3 possibilities.
-        (Some((currently_selected_entity, currently_selected_piece_color)), Some((target_entity, target_piece_color))) => {
+        (
+            Some((currently_selected_entity, currently_selected_piece_color)),
+            Some((target_entity, target_piece_color)),
+        ) => {
             // If currently selected piece is not one of the player's pieces, do nothing.
             if currently_selected_piece_color != game_state.turn {
                 return;
@@ -112,11 +126,15 @@ fn input_system(
 
             // Possibility 1: The player clicked on the same piece => Deselect the piece.
             if currently_selected_entity == target_entity {
-                commands.entity(currently_selected_entity).remove::<Selected>();
+                commands
+                    .entity(currently_selected_entity)
+                    .remove::<Selected>();
             }
             // Possibility 2: The player clicked on another piece from their own pieces => Deselect the currently selected piece and select the new piece.
             else if currently_selected_piece_color == target_piece_color {
-                commands.entity(currently_selected_entity).remove::<Selected>();
+                commands
+                    .entity(currently_selected_entity)
+                    .remove::<Selected>();
                 commands.entity(target_entity).insert(Selected);
             }
             // Possibility 3: the player clicked on an enemy piece => Despawn (capture) the enemy piece, move the currently selected piece to the enemy piece's position then deselect it
@@ -124,6 +142,7 @@ fn input_system(
                 commands.entity(target_entity).despawn();
 
                 if let Ok((_, _, mut square)) = piece_query.get_mut(currently_selected_entity) {
+                    let (prev_x, prev_y) = (square.x, square.y);
                     square.x = x;
                     square.y = y;
 
@@ -131,13 +150,21 @@ fn input_system(
                     game_state.turn = match game_state.turn {
                         PieceColor::White => PieceColor::Black,
                         PieceColor::Black => PieceColor::White,
-                    }
+                    };
+                    // Send the move made event.
+                    commands.trigger(MoveMadeEvent {
+                        piece: currently_selected_entity,
+                        start: (prev_x, prev_y),
+                        end: (x, y),
+                    });
                 }
-                commands.entity(currently_selected_entity).remove::<Selected>();
+                commands
+                    .entity(currently_selected_entity)
+                    .remove::<Selected>();
             }
-        },
+        }
         // TODO Case 4: Something is selected or not it doesn't matter -> Player clicked somewhere outside the board => Maybe clicked the UI, check.
-        _ => {},
+        _ => {}
     }
 }
 
@@ -155,15 +182,17 @@ fn highlight_selected_piece_system(
         }
 
         for square in just_selected_square_query.iter() {
-            let select_filter_center_x = (square.x as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
-            let select_filter_center_y = (square.y as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
             commands.spawn((
                 Sprite {
                     color: Color::srgba(0.6, 0.1, 0.8, 0.5),
                     custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
                     ..Default::default()
                 },
-                Transform::from_xyz(select_filter_center_x, select_filter_center_y, 0.5),
+                Transform::from_translation(get_world_position(
+                    square.x as usize,
+                    square.y as usize,
+                    0.5,
+                )),
                 SelectedFilter,
             ));
         }
@@ -176,13 +205,55 @@ fn highlight_selected_piece_system(
     }
 }
 
+fn on_move_made(
+    event: On<MoveMadeEvent>,
+    moved_piece_query: Query<&Square, (With<Piece>, Changed<Square>)>,
+    previously_moved_piece_query: Query<Entity, With<MovedFilter>>,
+    mut commands: Commands,
+) {
+    // Remove the filter from the previous last move.
+    for entity in previously_moved_piece_query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    let (moved_entity, previous_position, new_position) = (event.piece, event.start, event.end);
+    if let Ok(_) = moved_piece_query.get(moved_entity) {
+        // Lighter shade for the start square.
+        commands.spawn((
+            Sprite {
+                color: Color::srgba(0.4, 0.89, 0.118, 0.61),
+                custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                ..Default::default()
+            },
+            Transform::from_translation(get_world_position(
+                previous_position.0 as usize,
+                previous_position.1 as usize,
+                0.5,
+            )),
+            MovedFilter,
+        ));
+
+        // Darker shade for the final square.
+        commands.spawn((
+            Sprite {
+                color: Color::srgba(0.4, 0.89, 0.118, 0.61),
+                custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                ..Default::default()
+            },
+            Transform::from_translation(get_world_position(
+                new_position.0 as usize,
+                new_position.1 as usize,
+                0.5,
+            )),
+            MovedFilter,
+        ));
+    }
+}
+
 fn piece_movement_system(
     mut movement_query: Query<(&Square, &mut Transform), (With<Piece>, Changed<Square>)>,
 ) {
     for (square, mut transform) in movement_query.iter_mut() {
-        let new_x = (square.x as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
-        let new_y = (square.y as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
-
-        transform.translation = Vec3::new(new_x, new_y, 1.0);
+        transform.translation = get_world_position(square.x as usize, square.y as usize, 1.0);
     }
 }

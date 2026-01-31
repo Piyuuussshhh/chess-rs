@@ -116,11 +116,10 @@ fn spawn_pieces(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 // Helper function to convert Grid Coordinates (0..8) to Pixel Coordinates (-400..400)
-fn get_world_position(col: usize, row: usize, z: f32) -> Vec3 {
-    let offset = -BOARD_SIZE / 2.0 + TILE_SIZE / 2.0; // Center the board
+pub fn get_world_position(col: usize, row: usize, z: f32) -> Vec3 {
     Vec3::new(
-        col as f32 * TILE_SIZE + offset,
-        row as f32 * TILE_SIZE + offset,
+        col as f32 * TILE_SIZE - OFFSET + TILE_SIZE / 2.0,
+        row as f32 * TILE_SIZE - OFFSET + TILE_SIZE / 2.0,
         z,
     )
 }

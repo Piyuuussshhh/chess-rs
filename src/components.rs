@@ -60,3 +60,9 @@ pub struct Selected;
 
 #[derive(Component)]
 pub struct SelectedFilter;
+
+#[derive(Component)]
+pub struct TurnText;
+
+#[derive(Component)]
+pub struct MovedFilter;
