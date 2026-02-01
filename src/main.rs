@@ -8,6 +8,7 @@ mod resources;
 mod systems;
 mod ui;
 mod events;
+mod chess;
 
 fn main() {
     App::new()
