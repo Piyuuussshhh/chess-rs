@@ -66,3 +66,6 @@ pub struct TurnText;
 
 #[derive(Component)]
 pub struct MovedFilter;
+
+#[derive(Component)]
+pub struct LegalMovesFilter;

@@ -1,7 +1,7 @@
 use crate::{
     board::{OFFSET, TILE_SIZE, get_world_position},
-    chess::is_valid_move,
-    components::{MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter, Square},
+    chess::{get_legal_moves, is_valid_move},
+    components::{LegalMovesFilter, MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter, Square},
     events::MoveMadeEvent,
     resources::GameState,
 };
@@ -16,6 +16,7 @@ impl Plugin for GamePlugin {
             (
                 input_system,
                 highlight_selected_piece_system.after(input_system),
+                highlight_legal_moves_system,
                 piece_movement_system,
             ),
         )
@@ -134,7 +135,7 @@ fn input_system(
                 currently_selected_piece_kind,
                 currently_selected_piece_color,
             )),
-            Some((target_entity, target_piece_kind, target_piece_color)),
+            Some((target_entity, _, target_piece_color)),
         ) => {
             // If currently selected piece is not one of the player's pieces, do nothing.
             if currently_selected_piece_color != game_state.turn {
@@ -210,11 +211,11 @@ fn highlight_selected_piece_system(
     // If the player just selected a square with a piece on it.
     if !just_selected_square_query.is_empty() {
         // Deleting old selected filter.
-        for entity in previously_selected_square_query.iter() {
+        if let Ok(entity) = previously_selected_square_query.single() {
             commands.entity(entity).despawn();
         }
 
-        for square in just_selected_square_query.iter() {
+        if let Ok(square) = just_selected_square_query.single() {
             commands.spawn((
                 Sprite {
                     color: Color::srgba(0.6, 0.1, 0.8, 0.5),
@@ -232,7 +233,48 @@ fn highlight_selected_piece_system(
     }
     // If the player clicks outside the board or on a square with no piece on it.
     else if any_selected_square_query.is_empty() && !previously_selected_square_query.is_empty() {
-        for entity in previously_selected_square_query.iter() {
+        if let Ok(entity) = previously_selected_square_query.single() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn highlight_legal_moves_system(
+    mut commands: Commands,
+    piece_query: Query<(Entity, &Piece, &Square)>,
+    just_selected_square_query: Query<(&Piece, &Square), Added<Selected>>,
+    previously_highlighted_legal_moves_query: Query<Entity, With<LegalMovesFilter>>,
+    any_selected_query: Query<&Selected>,
+) {
+    // CASE 1: A new piece was just selected
+    if let Ok((piece, square)) = just_selected_square_query.single() {
+        for entity in previously_highlighted_legal_moves_query.iter() {
+            commands.entity(entity).despawn();
+        }
+
+        let board: Vec<(Piece, Square)> = piece_query.iter().map(|(_, p, s)| (*p, *s)).collect();
+        let start = (square.x, square.y);
+        let legal_moves = get_legal_moves(piece, start, &board);
+
+        for (x, y) in legal_moves {
+            commands.spawn((
+                Sprite {
+                    color: Color::srgba(0.6, 0.1, 0.8, 0.5),
+                    custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)), // Or use small circles
+                    ..Default::default()
+                },
+                Transform::from_translation(get_world_position(
+                    x as usize,
+                    y as usize,
+                    0.5,
+                )),
+                LegalMovesFilter,
+            ));
+        }
+    }
+    // CASE 2: Nothing is selected anymore, but highlights still exist.
+    else if any_selected_query.is_empty() && !previously_highlighted_legal_moves_query.is_empty() {
+        for entity in previously_highlighted_legal_moves_query.iter() {
             commands.entity(entity).despawn();
         }
     }

@@ -59,12 +59,12 @@ fn is_path_clear(start: (u8, u8), end: (u8, u8), board: Board) -> bool {
     };
 
     let mut x = start.0 as i8 + x_step;
-    let mut y = start.0 as i8 + y_step;
+    let mut y = start.1 as i8 + y_step;
 
     let target_x = end.0 as i8;
     let target_y = end.1 as i8;
 
-    while x != target_x && y != target_y {
+    while x != target_x || y != target_y {
         for (_, square) in board {
             if square.x == x as u8 && square.y == y as u8 {
                 return false;
@@ -124,7 +124,7 @@ fn is_valid_pawn_move(
     false
 }
 
-fn get_legal_moves(piece: &Piece, start: (u8, u8), board: Board) -> Vec<(u8, u8)> {
+pub fn get_legal_moves(piece: &Piece, start: (u8, u8), board: Board) -> Vec<(u8, u8)> {
     let mut legal_moves = Vec::new();
 
     for row in 0..8 {
