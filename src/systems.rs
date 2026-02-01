@@ -1,6 +1,7 @@
 use crate::{
     board::{OFFSET, TILE_SIZE, get_world_position},
-    components::{MovedFilter, Piece, PieceColor, Selected, SelectedFilter, Square},
+    chess::is_valid_move,
+    components::{MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter, Square},
     events::MoveMadeEvent,
     resources::GameState,
 };
@@ -61,26 +62,29 @@ fn input_system(
         If clicked_piece = None, the player clicked a square with no piece on it.
         This could be the target square where the player wants a piece to go.
     */
-    let mut clicked_piece: Option<(Entity, PieceColor)> = None;
+    let mut clicked_piece: Option<(Entity, PieceKind, PieceColor)> = None;
     for (entity, piece, square) in piece_query.iter() {
         if square.x == x && square.y == y {
-            clicked_piece = Some((entity, piece.color));
+            clicked_piece = Some((entity, piece.kind, piece.color));
             break;
         }
     }
 
     // Finding the currently selected piece (it could be some other piece than the one found above).
-    let mut selected_piece: Option<(Entity, PieceColor)> = None;
+    let mut selected_piece: Option<(Entity, PieceKind, PieceColor)> = None;
     if let Ok(selected_entity) = selected_piece_query.single() {
         if let Ok((_, piece, _)) = piece_query.get(selected_entity) {
-            selected_piece = Some((selected_entity, piece.color))
+            selected_piece = Some((selected_entity, piece.kind, piece.color))
         }
     }
+
+    // Taking a snapshot of the board and saving it in an array.
+    let board: Vec<(Piece, Square)> = piece_query.iter().map(|(_, p, s)| (*p, *s)).collect();
 
     // Decision & Execution
     match (selected_piece, clicked_piece) {
         // Case 1: Nothing selected yet -> player clicks a piece => Select the piece ONLY if its one of the player's pieces.
-        (None, Some((entity, piece_color))) => {
+        (None, Some((entity, _, piece_color))) => {
             if piece_color != game_state.turn {
                 return;
             }
@@ -88,36 +92,49 @@ fn input_system(
             commands.entity(entity).insert(Selected);
         }
         // Case 2: A piece is selected -> player clicks an empty square => Move the piece to the empty square.
-        (Some((entity, selected_piece_color)), None) => {
+        (Some((entity, selected_piece_kind, selected_piece_color)), None) => {
             if selected_piece_color != game_state.turn {
                 return;
             }
 
+            let piece = Piece {
+                kind: selected_piece_kind,
+                color: selected_piece_color,
+            };
+
             if let Ok((_, _, mut square)) = piece_query.get_mut(entity) {
                 let (prev_x, prev_y) = (square.x, square.y);
+
+                if !is_valid_move(&piece, (prev_x, prev_y), (x, y), &board) {
+                    return;
+                }
+
                 square.x = x;
                 square.y = y;
 
-                // Turn completed, switch turns.
                 game_state.turn = match game_state.turn {
                     PieceColor::White => PieceColor::Black,
                     PieceColor::Black => PieceColor::White,
                 };
-                // Send the move made event.
+
                 commands.trigger(MoveMadeEvent {
                     piece: entity,
                     start: (prev_x, prev_y),
                     end: (x, y),
                 });
-            }
 
-            // Deselect after moving it.
-            commands.entity(entity).remove::<Selected>();
+                // Deselect after moving it.
+                commands.entity(entity).remove::<Selected>();
+            }
         }
         // Case 3: A piece is selected -> player clicks on a square with a piece => 3 possibilities.
         (
-            Some((currently_selected_entity, currently_selected_piece_color)),
-            Some((target_entity, target_piece_color)),
+            Some((
+                currently_selected_entity,
+                currently_selected_piece_kind,
+                currently_selected_piece_color,
+            )),
+            Some((target_entity, target_piece_kind, target_piece_color)),
         ) => {
             // If currently selected piece is not one of the player's pieces, do nothing.
             if currently_selected_piece_color != game_state.turn {
@@ -139,6 +156,22 @@ fn input_system(
             }
             // Possibility 3: the player clicked on an enemy piece => Despawn (capture) the enemy piece, move the currently selected piece to the enemy piece's position then deselect it
             else {
+                let currently_selected_piece = Piece {
+                    kind: currently_selected_piece_kind,
+                    color: currently_selected_piece_color,
+                };
+
+                if let Ok((_, _, square)) = piece_query.get(currently_selected_entity) {
+                    if !is_valid_move(
+                        &currently_selected_piece,
+                        (square.x, square.y),
+                        (x, y),
+                        &board,
+                    ) {
+                        return;
+                    }
+                }
+
                 commands.entity(target_entity).despawn();
 
                 if let Ok((_, _, mut square)) = piece_query.get_mut(currently_selected_entity) {

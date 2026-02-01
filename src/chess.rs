@@ -2,12 +2,9 @@
 
 use crate::components::{Piece, PieceColor, PieceKind, Square};
 
-pub fn is_valid_move(
-    piece: &Piece,
-    start: (u8, u8),
-    end: (u8, u8),
-    board: &[(&Piece, &Square)],
-) -> bool {
+type Board<'a> = &'a [(Piece, Square)];
+
+pub fn is_valid_move(piece: &Piece, start: (u8, u8), end: (u8, u8), board: Board) -> bool {
     if start == end {
         return false;
     }
@@ -25,20 +22,28 @@ pub fn is_valid_move(
     let dx = (end.0 as i8) - (start.0 as i8);
     let dy = (end.1 as i8) - (start.1 as i8);
     let abs_dx = dx.abs();
-    let abs_dy = dx.abs();
+    let abs_dy = dy.abs();
 
     match piece.kind {
-        PieceKind::Pawn => is_valid_pawn_move(piece.color, start, end, potential_target_piece.is_some(), board),
+        PieceKind::Pawn => is_valid_pawn_move(
+            piece.color,
+            start,
+            end,
+            potential_target_piece.is_some(),
+            board,
+        ),
         PieceKind::Rook => (dx == 0 || dy == 0) && is_path_clear(start, end, board),
         PieceKind::Knight => (abs_dx == 1 && abs_dy == 2) || (abs_dx == 2 && abs_dy == 1),
         PieceKind::Bishop => (abs_dx == abs_dy) && is_path_clear(start, end, board),
-        PieceKind::Queen => ((dx == 0 || dy == 0) || (abs_dx == abs_dy)) && is_path_clear(start, end, board),
+        PieceKind::Queen => {
+            ((dx == 0 || dy == 0) || (abs_dx == abs_dy)) && is_path_clear(start, end, board)
+        }
         PieceKind::King => abs_dx <= 1 && abs_dy <= 1,
     }
 }
 
 /// Returns true if the path between the start and end squares does not contain any other piece.
-fn is_path_clear(start: (u8, u8), end: (u8, u8), board: &[(&Piece, &Square)]) -> bool {
+fn is_path_clear(start: (u8, u8), end: (u8, u8), board: Board) -> bool {
     let distance_x = (end.0 as i8) - (start.0 as i8);
     let distance_y = (end.1 as i8) - (start.1 as i8);
 
@@ -78,7 +83,7 @@ fn is_valid_pawn_move(
     start: (u8, u8),
     end: (u8, u8),
     is_target_occupied: bool,
-    board: &[(&Piece, &Square)],
+    board: Board,
 ) -> bool {
     let dx = (end.0 as i8) - (start.0 as i8);
     let dy = (end.1 as i8) - (start.1 as i8);
@@ -119,11 +124,7 @@ fn is_valid_pawn_move(
     false
 }
 
-fn get_legal_moves(
-    piece: &Piece,
-    start: (u8, u8),
-    board: &[(&Piece, &Square)],
-) -> Vec<(u8, u8)> {
+fn get_legal_moves(piece: &Piece, start: (u8, u8), board: Board) -> Vec<(u8, u8)> {
     let mut legal_moves = Vec::new();
 
     for row in 0..8 {

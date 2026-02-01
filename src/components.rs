@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use bevy::prelude::*;
 
-#[derive(Component)]
+#[derive(Component,Clone, Copy)]
 pub struct Piece {
     pub color: PieceColor,
     pub kind: PieceKind,
@@ -48,7 +48,7 @@ impl Display for PieceKind {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Square {
     pub x: u8,
     pub y: u8,
