@@ -109,8 +109,7 @@ fn is_valid_pawn_move(
     };
     if dx == 0 && dy == 2 * direction && start.1 == start_rank {
         let is_blocked_by_another_piece = board.iter().any(|(_, square)| {
-            square.x == (start.0 as i8 + direction) as u8
-                && square.y == (start.1 as i8 + direction) as u8
+            square.x == start.0 && square.y == (start.1 as i8 + direction) as u8
         });
         return !is_blocked_by_another_piece && !target_square_has_piece;
     }

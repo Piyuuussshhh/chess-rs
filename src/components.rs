@@ -2,13 +2,13 @@ use std::fmt::Display;
 
 use bevy::prelude::*;
 
-#[derive(Component,Clone, Copy)]
+#[derive(Component,Clone, Copy, Debug)]
 pub struct Piece {
     pub color: PieceColor,
     pub kind: PieceKind,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PieceColor {
     White,
     Black
@@ -24,7 +24,7 @@ impl Display for PieceColor {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PieceKind {
     Pawn,
     Rook,
@@ -48,10 +48,16 @@ impl Display for PieceKind {
     }
 }
 
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Square {
     pub x: u8,
     pub y: u8,
+}
+
+impl Display for Square {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
 }
 
 // This component will be attached to a single piece that is clicked on by the user.
