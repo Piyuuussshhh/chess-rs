@@ -245,6 +245,8 @@ fn highlight_legal_moves_system(
     just_selected_square_query: Query<(&Piece, &Square), Added<Selected>>,
     previously_highlighted_legal_moves_query: Query<Entity, With<LegalMovesFilter>>,
     any_selected_query: Query<&Selected>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // CASE 1: A new piece was just selected
     if let Ok((piece, square)) = just_selected_square_query.single() {
@@ -256,13 +258,12 @@ fn highlight_legal_moves_system(
         let start = (square.x, square.y);
         let legal_moves = get_legal_moves(piece, start, &board);
 
+        let color = Color::srgba(0.6, 0.1, 0.8, 0.5);
         for (x, y) in legal_moves {
+            let highlight_circle = meshes.add(Circle::new(15.0));
             commands.spawn((
-                Sprite {
-                    color: Color::srgba(0.6, 0.1, 0.8, 0.5),
-                    custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)), // Or use small circles
-                    ..Default::default()
-                },
+                Mesh2d(highlight_circle),
+                MeshMaterial2d(materials.add(color)),
                 Transform::from_translation(get_world_position(
                     x as usize,
                     y as usize,
