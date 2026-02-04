@@ -4,7 +4,60 @@ use crate::components::{Piece, PieceColor, PieceKind, Square};
 
 type Board<'a> = &'a [(Piece, Square)];
 
-pub fn is_valid_move(piece: &Piece, start: (u8, u8), end: (u8, u8), board: Board) -> bool {
+pub fn is_legal_move(piece: &Piece, start: (u8, u8), end: (u8, u8), board: Board) -> bool {
+    if !is_geometrically_valid_move(piece, start, end, board) {
+        return false;
+    }
+
+    // Simulating the move to look for checks.
+
+    let mut temp_board = board.to_vec();
+    // Remove only the captured piece (if any).
+    temp_board.retain(|(_, square)| square.x != end.0 || square.y != end.1);
+    // Move the capturing (or moving) piece to the final location (end).
+    if let Some((_, square)) = temp_board
+        .iter_mut()
+        .find(|(_, square)| square.x == start.0 && square.y == start.1)
+    {
+        square.x = end.0;
+        square.y = end.1;
+    }
+    // Find our king's position.
+    let king_position = if piece.kind == PieceKind::King {
+        // If the piece that was moved is the king himself
+        end
+    } else {
+        temp_board
+            .iter()
+            .find(|(p, _)| p.kind == PieceKind::King && p.color == piece.color)
+            .map(|(_, s)| (s.x, s.y))
+            .unwrap_or((0, 0))
+    };
+
+    // If our king is in check, then it's not a valid move.
+    !is_king_in_check(king_position, piece.color, &temp_board)
+}
+
+pub fn get_legal_moves(piece: &Piece, start: (u8, u8), board: Board) -> Vec<(u8, u8)> {
+    let mut legal_moves = Vec::new();
+
+    for row in 0..8 {
+        for col in 0..8 {
+            if is_legal_move(piece, start, (row, col), board) {
+                legal_moves.push((row, col));
+            }
+        }
+    }
+
+    legal_moves
+}
+
+fn is_geometrically_valid_move(
+    piece: &Piece,
+    start: (u8, u8),
+    end: (u8, u8),
+    board: Board,
+) -> bool {
     if start == end {
         return false;
     }
@@ -123,16 +176,11 @@ fn is_valid_pawn_move(
     false
 }
 
-pub fn get_legal_moves(piece: &Piece, start: (u8, u8), board: Board) -> Vec<(u8, u8)> {
-    let mut legal_moves = Vec::new();
-
-    for row in 0..8 {
-        for col in 0..8 {
-            if is_valid_move(piece, start, (row, col), board) {
-                legal_moves.push((row, col));
-            }
-        }
-    }
-
-    legal_moves
+fn is_king_in_check(king_position: (u8, u8), color: PieceColor, board: Board) -> bool {
+    board
+        .iter()
+        .filter(|(enemy_piece, _)| enemy_piece.color != color)
+        .any(|(enemy_piece, square)| {
+            is_geometrically_valid_move(enemy_piece, (square.x, square.y), king_position, board)
+        })
 }

@@ -1,6 +1,6 @@
 use crate::{
     board::{OFFSET, TILE_SIZE, get_world_position},
-    chess::{get_legal_moves, is_valid_move},
+    chess::{get_legal_moves, is_legal_move},
     components::{LegalMovesFilter, MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter, Square},
     events::MoveMadeEvent,
     resources::GameState,
@@ -106,7 +106,7 @@ fn input_system(
             if let Ok((_, _, mut square)) = piece_query.get_mut(entity) {
                 let (prev_x, prev_y) = (square.x, square.y);
 
-                if !is_valid_move(&piece, (prev_x, prev_y), (x, y), &board) {
+                if !is_legal_move(&piece, (prev_x, prev_y), (x, y), &board) {
                     return;
                 }
 
@@ -163,7 +163,7 @@ fn input_system(
                 };
 
                 if let Ok((_, _, square)) = piece_query.get(currently_selected_entity) {
-                    if !is_valid_move(
+                    if !is_legal_move(
                         &currently_selected_piece,
                         (square.x, square.y),
                         (x, y),
@@ -260,6 +260,22 @@ fn highlight_legal_moves_system(
 
         let color = Color::srgba(0.6, 0.1, 0.8, 0.5);
         for (x, y) in legal_moves {
+            if let Some((_, _, sq)) = piece_query.iter().find(|(_, _, sq)| sq.x == x && sq.y == y) {
+                commands.spawn((
+                    Sprite {
+                        color: Color::srgba(0.6, 0.1, 0.8, 0.5),
+                        custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                        ..Default::default()
+                    },
+                    Transform::from_translation(get_world_position(
+                        sq.x as usize,
+                        sq.y as usize,
+                        0.5,
+                    )),
+                    LegalMovesFilter,
+                ));
+            }
+
             let highlight_circle = meshes.add(Circle::new(15.0));
             commands.spawn((
                 Mesh2d(highlight_circle),
