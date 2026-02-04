@@ -95,7 +95,7 @@ fn spawn_pieces(mut commands: Commands, asset_server: Res<AssetServer>) {
                     scale: Vec3::splat(0.8),
                     ..Default::default()
                 },
-                Piece { kind, color },
+                Piece { kind, color, has_moved: false },
                 Square {
                     x: x as u8,
                     y: y as u8,

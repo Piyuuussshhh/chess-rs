@@ -1,7 +1,10 @@
 use crate::{
     board::{OFFSET, TILE_SIZE, get_world_position},
     chess::{get_legal_moves, is_legal_move},
-    components::{LegalMovesFilter, MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter, Square},
+    components::{
+        LegalMovesFilter, MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter,
+        Square,
+    },
     events::MoveMadeEvent,
     resources::GameState,
 };
@@ -29,7 +32,7 @@ fn input_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
-    mut piece_query: Query<(Entity, &Piece, &mut Square)>,
+    mut piece_query: Query<(Entity, &mut Piece, &mut Square)>,
     selected_piece_query: Query<Entity, With<Selected>>,
     mut game_state: ResMut<GameState>,
 ) {
@@ -63,138 +66,173 @@ fn input_system(
         If clicked_piece = None, the player clicked a square with no piece on it.
         This could be the target square where the player wants a piece to go.
     */
-    let mut clicked_piece: Option<(Entity, PieceKind, PieceColor)> = None;
+    let mut clicked_piece: Option<(Entity, Piece)> = None;
     for (entity, piece, square) in piece_query.iter() {
         if square.x == x && square.y == y {
-            clicked_piece = Some((entity, piece.kind, piece.color));
+            clicked_piece = Some((entity, piece.clone()));
             break;
         }
     }
 
-    // Finding the currently selected piece (it could be some other piece than the one found above).
-    let mut selected_piece: Option<(Entity, PieceKind, PieceColor)> = None;
+    // Finding a selected piece.
+    let mut selected_piece: Option<(Entity, Piece)> = None;
     if let Ok(selected_entity) = selected_piece_query.single() {
         if let Ok((_, piece, _)) = piece_query.get(selected_entity) {
-            selected_piece = Some((selected_entity, piece.kind, piece.color))
+            selected_piece = Some((selected_entity, piece.clone()))
         }
     }
 
-    // Taking a snapshot of the board and saving it in an array.
+    // Saving the board.
     let board: Vec<(Piece, Square)> = piece_query.iter().map(|(_, p, s)| (*p, *s)).collect();
 
-    // Decision & Execution
+    // Decision Tree + Execution.
     match (selected_piece, clicked_piece) {
-        // Case 1: Nothing selected yet -> player clicks a piece => Select the piece ONLY if its one of the player's pieces.
-        (None, Some((entity, _, piece_color))) => {
-            if piece_color != game_state.turn {
+        // Case 1: Select a Piece
+        (None, Some((entity, piece))) => {
+            if piece.color != game_state.turn {
                 return;
             }
-
             commands.entity(entity).insert(Selected);
         }
-        // Case 2: A piece is selected -> player clicks an empty square => Move the piece to the empty square.
-        (Some((entity, selected_piece_kind, selected_piece_color)), None) => {
-            if selected_piece_color != game_state.turn {
+
+        // Case 2: Selected piece wants to move to Empty Square (Includes Castling)
+        (Some((entity, selected_piece_data)), None) => {
+            if selected_piece_data.color != game_state.turn {
                 return;
             }
 
-            let piece = Piece {
-                kind: selected_piece_kind,
-                color: selected_piece_color,
-            };
+            // Identify if we need to move a Rook, BEFORE we borrow the query mutably.
+            let mut castling_rook_task: Option<(Entity, (u8, u8))> = None;
 
-            if let Ok((_, _, mut square)) = piece_query.get_mut(entity) {
+            if selected_piece_data.kind == PieceKind::King {
+                if let Ok((_, _, sq)) = piece_query.get(entity) {
+                    let dx = x as i8 - sq.x as i8;
+
+                    // If King moved 2 squares, it's a Castle attempt
+                    if dx.abs() == 2 {
+                        let rook_start_pos = match (x, y) {
+                            (6, 0) => Some((7, 0)), // White King Side
+                            (2, 0) => Some((0, 0)), // White Queen Side
+                            (6, 7) => Some((7, 7)), // Black King Side
+                            (2, 7) => Some((0, 7)), // Black Queen Side
+                            _ => None,
+                        };
+
+                        if let Some(r_pos) = rook_start_pos {
+                            let rook_dest = match r_pos {
+                                (7, 0) => (5, 0),
+                                (0, 0) => (3, 0),
+                                (7, 7) => (5, 7),
+                                (0, 7) => (3, 7),
+                                _ => (0, 0), // Should not happen
+                            };
+
+                            // Search for the Rook Entity
+                            if let Some((r_entity, _, _)) = piece_query
+                                .iter()
+                                .find(|(_, _, s)| s.x == r_pos.0 && s.y == r_pos.1)
+                            {
+                                castling_rook_task = Some((r_entity, rook_dest));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Ok((_, mut piece, mut square)) = piece_query.get_mut(entity) {
                 let (prev_x, prev_y) = (square.x, square.y);
 
-                if !is_legal_move(&piece, (prev_x, prev_y), (x, y), &board) {
+                if !is_legal_move(&selected_piece_data, (prev_x, prev_y), (x, y), &board) {
                     return;
                 }
 
+                // Move.
                 square.x = x;
                 square.y = y;
 
-                game_state.turn = match game_state.turn {
-                    PieceColor::White => PieceColor::Black,
-                    PieceColor::Black => PieceColor::White,
-                };
+                // Update has_moved flag.
+                piece.has_moved = true;
 
+                // Event.
                 commands.trigger(MoveMadeEvent {
                     piece: entity,
                     start: (prev_x, prev_y),
                     end: (x, y),
                 });
-
-                // Deselect after moving it.
-                commands.entity(entity).remove::<Selected>();
             }
+
+            // Only runs if Phase A found a valid castling task
+            if let Some((rook_entity, rook_dest)) = castling_rook_task {
+                if let Ok((_, mut rook_piece, mut rook_square)) = piece_query.get_mut(rook_entity) {
+                    let (r_prev_x, r_prev_y) = (rook_square.x, rook_square.y);
+
+                    // Move Rook.
+                    rook_square.x = rook_dest.0;
+                    rook_square.y = rook_dest.1;
+
+                    rook_piece.has_moved = true;
+
+                    commands.trigger(MoveMadeEvent {
+                        piece: rook_entity,
+                        start: (r_prev_x, r_prev_y),
+                        end: rook_dest,
+                    });
+                }
+            }
+
+            game_state.turn = match game_state.turn {
+                PieceColor::White => PieceColor::Black,
+                PieceColor::Black => PieceColor::White,
+            };
+            commands.entity(entity).remove::<Selected>();
         }
-        // Case 3: A piece is selected -> player clicks on a square with a piece => 3 possibilities.
-        (
-            Some((
-                currently_selected_entity,
-                currently_selected_piece_kind,
-                currently_selected_piece_color,
-            )),
-            Some((target_entity, _, target_piece_color)),
-        ) => {
-            // If currently selected piece is not one of the player's pieces, do nothing.
-            if currently_selected_piece_color != game_state.turn {
+
+        // Case 3: Selected piece wants to move to a square that already has a piece on it => 3 sub-cases.
+        (Some((curr_entity, curr_piece)), Some((target_entity, target_piece))) => {
+            if curr_piece.color != game_state.turn {
                 return;
             }
 
-            // Possibility 1: The player clicked on the same piece => Deselect the piece.
-            if currently_selected_entity == target_entity {
-                commands
-                    .entity(currently_selected_entity)
-                    .remove::<Selected>();
+            // Sub-case 1: Clicked same piece -> Deselect
+            if curr_entity == target_entity {
+                commands.entity(curr_entity).remove::<Selected>();
             }
-            // Possibility 2: The player clicked on another piece from their own pieces => Deselect the currently selected piece and select the new piece.
-            else if currently_selected_piece_color == target_piece_color {
-                commands
-                    .entity(currently_selected_entity)
-                    .remove::<Selected>();
+            // Sub-case 2: Clicked Friend -> Switch Selection
+            else if curr_piece.color == target_piece.color {
+                commands.entity(curr_entity).remove::<Selected>();
                 commands.entity(target_entity).insert(Selected);
             }
-            // Possibility 3: the player clicked on an enemy piece => Despawn (capture) the enemy piece, move the currently selected piece to the enemy piece's position then deselect it
+            // Sub-case 3: Clicked Enemy -> CAPTURE
             else {
-                let currently_selected_piece = Piece {
-                    kind: currently_selected_piece_kind,
-                    color: currently_selected_piece_color,
-                };
-
-                if let Ok((_, _, square)) = piece_query.get(currently_selected_entity) {
-                    if !is_legal_move(
-                        &currently_selected_piece,
-                        (square.x, square.y),
-                        (x, y),
-                        &board,
-                    ) {
+                // 1. Validate
+                if let Ok((_, _, square)) = piece_query.get(curr_entity) {
+                    if !is_legal_move(&curr_piece, (square.x, square.y), (x, y), &board) {
                         return;
                     }
                 }
 
+                // 2. Execute Capture
                 commands.entity(target_entity).despawn();
 
-                if let Ok((_, _, mut square)) = piece_query.get_mut(currently_selected_entity) {
+                if let Ok((_, mut piece, mut square)) = piece_query.get_mut(curr_entity) {
                     let (prev_x, prev_y) = (square.x, square.y);
                     square.x = x;
                     square.y = y;
 
-                    // Turn completed, switch turns.
+                    piece.has_moved = true;
+
                     game_state.turn = match game_state.turn {
                         PieceColor::White => PieceColor::Black,
                         PieceColor::Black => PieceColor::White,
                     };
-                    // Send the move made event.
+
                     commands.trigger(MoveMadeEvent {
-                        piece: currently_selected_entity,
+                        piece: curr_entity,
                         start: (prev_x, prev_y),
                         end: (x, y),
                     });
                 }
-                commands
-                    .entity(currently_selected_entity)
-                    .remove::<Selected>();
+                commands.entity(curr_entity).remove::<Selected>();
             }
         }
         // TODO Case 4: Something is selected or not it doesn't matter -> Player clicked somewhere outside the board => Maybe clicked the UI, check.
@@ -280,17 +318,14 @@ fn highlight_legal_moves_system(
             commands.spawn((
                 Mesh2d(highlight_circle),
                 MeshMaterial2d(materials.add(color)),
-                Transform::from_translation(get_world_position(
-                    x as usize,
-                    y as usize,
-                    0.5,
-                )),
+                Transform::from_translation(get_world_position(x as usize, y as usize, 0.5)),
                 LegalMovesFilter,
             ));
         }
     }
     // CASE 2: Nothing is selected anymore, but highlights still exist.
-    else if any_selected_query.is_empty() && !previously_highlighted_legal_moves_query.is_empty() {
+    else if any_selected_query.is_empty() && !previously_highlighted_legal_moves_query.is_empty()
+    {
         for entity in previously_highlighted_legal_moves_query.iter() {
             commands.entity(entity).despawn();
         }

@@ -6,6 +6,7 @@ use bevy::prelude::*;
 pub struct Piece {
     pub color: PieceColor,
     pub kind: PieceKind,
+    pub has_moved: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

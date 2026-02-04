@@ -82,7 +82,6 @@ fn is_geometrically_valid_move(
             piece.color,
             start,
             end,
-            potential_target_piece.is_some(),
             board,
         ),
         PieceKind::Rook => (dx == 0 || dy == 0) && is_path_clear(start, end, board),
@@ -91,7 +90,15 @@ fn is_geometrically_valid_move(
         PieceKind::Queen => {
             ((dx == 0 || dy == 0) || (abs_dx == abs_dy)) && is_path_clear(start, end, board)
         }
-        PieceKind::King => abs_dx <= 1 && abs_dy <= 1,
+        PieceKind::King => {
+            if dx == 2 && dy == 0 {
+                is_castling_possible(piece, CastleSide::KingSide, board)
+            } else if dx == -2 && dy == 0 {
+                is_castling_possible(piece, CastleSide::QueenSide, board)
+            } else {
+                abs_dx <= 1 && abs_dy <= 1
+            }
+        }
     }
 }
 
@@ -135,7 +142,6 @@ fn is_valid_pawn_move(
     color: PieceColor,
     start: (u8, u8),
     end: (u8, u8),
-    is_target_occupied: bool,
     board: Board,
 ) -> bool {
     let dx = (end.0 as i8) - (start.0 as i8);
@@ -170,7 +176,7 @@ fn is_valid_pawn_move(
     // Diagonal Capture: dy == direction limits the capture to only happen diagonally forwards wrt the piece color.
     // The check for the enemy piece is already handled in input_system (if there is same color piece diagonal to a pawn, that piece will get selected instead of being captured)
     if dx.abs() == 1 && dy == direction {
-        return is_target_occupied;
+        return target_square_has_piece;
     }
 
     false
@@ -183,4 +189,116 @@ fn is_king_in_check(king_position: (u8, u8), color: PieceColor, board: Board) ->
         .any(|(enemy_piece, square)| {
             is_geometrically_valid_move(enemy_piece, (square.x, square.y), king_position, board)
         })
+}
+
+#[derive(Clone, Copy)]
+enum CastleSide {
+    KingSide,
+    QueenSide,
+}
+
+impl CastleSide {
+    fn get_rook_initial_pos(&self, color: PieceColor) -> (u8, u8) {
+        match self {
+            CastleSide::KingSide => match color {
+                PieceColor::White => (7, 0),
+                PieceColor::Black => (7, 7),
+            },
+            CastleSide::QueenSide => match color {
+                PieceColor::White => (0, 0),
+                PieceColor::Black => (0, 7),
+            },
+        }
+    }
+
+    fn squares_to_check(&self, color: PieceColor) -> [Option<(u8, u8)>; 4] {
+        match self {
+            CastleSide::KingSide => match color {
+                PieceColor::White => [Some((4, 0)), Some((5, 0)), Some((6, 0)), None],
+                PieceColor::Black => [Some((4, 7)), Some((5, 7)), Some((6, 7)), None],
+            },
+            CastleSide::QueenSide => match color {
+                PieceColor::White => [Some((4, 0)), Some((3, 0)), Some((2, 0)), Some((1, 0))],
+                PieceColor::Black => [Some((4, 7)), Some((3, 7)), Some((2, 7)), Some((1, 7))],
+            },
+        }
+    }
+}
+
+fn is_castling_possible(king: &Piece, side: CastleSide, board: Board) -> bool {
+    if king.has_moved {
+        return false;
+    }
+
+    let checks = |side: CastleSide| -> bool {
+        // To check if the rook has moved.
+        if let Some((rook, _)) = board.iter().find(|(p, s)| {
+            p.kind == PieceKind::Rook && (s.x, s.y) == side.get_rook_initial_pos(king.color)
+        }) {
+            if rook.has_moved {
+                return false;
+            }
+        }
+
+        // To check if the king or rook is blocked.
+        let mut is_blocked = false;
+        board.iter().for_each(|(_, sq)| {
+            side.squares_to_check(king.color)
+                .iter()
+                // to skip the king's initial position.
+                .skip(1)
+                .for_each(|&s| {
+                    if let Some((x, y)) = s {
+                        // if there is a piece in between the rook and king, they are blocked.
+                        if sq.x == x && sq.y == y {
+                            is_blocked = true;
+                        }
+                    }
+                });
+        });
+        if is_blocked {
+            return false;
+        }
+
+        // To check if the king passes through a check.
+        let possible_king_positions = side.squares_to_check(king.color);
+        for possible_king_position in possible_king_positions {
+            if possible_king_position == None {
+                continue;
+            }
+            // the squares b1 and b8 need not be checked for king checks.
+            if [(1, 0), (1, 7)].contains(&possible_king_position.unwrap()) {
+                continue;
+            }
+            if is_king_in_check(possible_king_position.unwrap(), king.color, board) {
+                return false;
+            }
+        }
+
+        true
+    };
+
+    // Checking if the king passes through a check or if the king or the rook has moved or is blocked while castling.
+    let castling_checks_passed = match side {
+        CastleSide::KingSide => match king.color {
+            PieceColor::White => checks(side),
+            PieceColor::Black => checks(side),
+        },
+        CastleSide::QueenSide => match king.color {
+            PieceColor::White => checks(side),
+            PieceColor::Black => checks(side),
+        },
+    };
+
+    if !castling_checks_passed {
+        return false;
+    }
+
+    let rook_start_pos = side.get_rook_initial_pos(king.color);
+
+    let is_rook_at_start_pos = board
+        .iter()
+        .any(|(p, s)| p.kind == PieceKind::Rook && (s.x, s.y) == rook_start_pos);
+
+    is_rook_at_start_pos
 }
