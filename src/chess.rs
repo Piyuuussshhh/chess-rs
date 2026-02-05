@@ -182,7 +182,7 @@ fn is_valid_pawn_move(
     false
 }
 
-fn is_king_in_check(king_position: (u8, u8), color: PieceColor, board: Board) -> bool {
+pub fn is_king_in_check(king_position: (u8, u8), color: PieceColor, board: Board) -> bool {
     board
         .iter()
         .filter(|(enemy_piece, _)| enemy_piece.color != color)

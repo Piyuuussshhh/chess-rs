@@ -1,9 +1,9 @@
 use crate::{
     board::{OFFSET, TILE_SIZE, get_world_position},
-    chess::{get_legal_moves, is_legal_move},
+    chess::{get_legal_moves, is_king_in_check, is_legal_move},
     components::{
-        LegalMovesFilter, MovedFilter, Piece, PieceColor, PieceKind, Selected, SelectedFilter,
-        Square,
+        InCheckHighlight, LegalMovesFilter, MovedFilter, Piece, PieceColor, PieceKind, Selected,
+        SelectedFilter, Square,
     },
     events::MoveMadeEvent,
     resources::GameState,
@@ -334,12 +334,19 @@ fn highlight_legal_moves_system(
 
 fn on_move_made(
     event: On<MoveMadeEvent>,
+    mut commands: Commands,
     moved_piece_query: Query<&Square, (With<Piece>, Changed<Square>)>,
     previously_moved_piece_query: Query<Entity, With<MovedFilter>>,
-    mut commands: Commands,
+    check_highlight_query: Query<Entity, With<InCheckHighlight>>,
+    piece_query: Query<(Entity, &Piece, &Square)>,
+    asset_server: Res<AssetServer>,
+    game_state: Res<GameState>,
 ) {
     // Remove the filter from the previous last move.
     for entity in previously_moved_piece_query.iter() {
+        commands.entity(entity).despawn();
+    }
+    if let Ok(entity) = check_highlight_query.single() {
         commands.entity(entity).despawn();
     }
 
@@ -374,6 +381,26 @@ fn on_move_made(
             )),
             MovedFilter,
         ));
+    }
+
+    let board: Vec<(Piece, Square)> = piece_query.iter().map(|(_, p, s)| (*p, *s)).collect();
+    for (_, piece, square) in piece_query.iter() {
+        if piece.color == game_state.turn && piece.kind == PieceKind::King {
+            if is_king_in_check((square.x, square.y), game_state.turn, &board) {
+                let center_x = (square.x as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
+                let center_y = (square.y as f32 * TILE_SIZE) - OFFSET + (TILE_SIZE / 2.0);
+
+                commands.spawn((
+                    Sprite {
+                        custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
+                        image: asset_server.load("effects/glow4.png"),
+                        ..default()
+                    },
+                    Transform::from_xyz(center_x, center_y - 5.0, 0.9),
+                    InCheckHighlight,
+                ));
+            }
+        }
     }
 }
 

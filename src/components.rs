@@ -76,3 +76,6 @@ pub struct MovedFilter;
 
 #[derive(Component)]
 pub struct LegalMovesFilter;
+
+#[derive(Component)]
+pub struct InCheckHighlight;
