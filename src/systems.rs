@@ -164,19 +164,20 @@ fn input_system(
             // Only runs if Phase A found a valid castling task
             if let Some((rook_entity, rook_dest)) = castling_rook_task {
                 if let Ok((_, mut rook_piece, mut rook_square)) = piece_query.get_mut(rook_entity) {
-                    let (r_prev_x, r_prev_y) = (rook_square.x, rook_square.y);
+                    if !rook_piece.has_moved {
+                        let (r_prev_x, r_prev_y) = (rook_square.x, rook_square.y);
+                        // Move Rook.
+                        rook_square.x = rook_dest.0;
+                        rook_square.y = rook_dest.1;
 
-                    // Move Rook.
-                    rook_square.x = rook_dest.0;
-                    rook_square.y = rook_dest.1;
+                        rook_piece.has_moved = true;
 
-                    rook_piece.has_moved = true;
-
-                    commands.trigger(MoveMadeEvent {
-                        piece: rook_entity,
-                        start: (r_prev_x, r_prev_y),
-                        end: rook_dest,
-                    });
+                        commands.trigger(MoveMadeEvent {
+                            piece: rook_entity,
+                            start: (r_prev_x, r_prev_y),
+                            end: rook_dest,
+                        });
+                    }
                 }
             }
 

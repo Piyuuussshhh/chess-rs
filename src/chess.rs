@@ -78,12 +78,7 @@ fn is_geometrically_valid_move(
     let abs_dy = dy.abs();
 
     match piece.kind {
-        PieceKind::Pawn => is_valid_pawn_move(
-            piece.color,
-            start,
-            end,
-            board,
-        ),
+        PieceKind::Pawn => is_valid_pawn_move(piece.color, start, end, board),
         PieceKind::Rook => (dx == 0 || dy == 0) && is_path_clear(start, end, board),
         PieceKind::Knight => (abs_dx == 1 && abs_dy == 2) || (abs_dx == 2 && abs_dy == 1),
         PieceKind::Bishop => (abs_dx == abs_dy) && is_path_clear(start, end, board),
@@ -138,12 +133,7 @@ fn is_path_clear(start: (u8, u8), end: (u8, u8), board: Board) -> bool {
     true
 }
 
-fn is_valid_pawn_move(
-    color: PieceColor,
-    start: (u8, u8),
-    end: (u8, u8),
-    board: Board,
-) -> bool {
+fn is_valid_pawn_move(color: PieceColor, start: (u8, u8), end: (u8, u8), board: Board) -> bool {
     let dx = (end.0 as i8) - (start.0 as i8);
     let dy = (end.1 as i8) - (start.1 as i8);
 
@@ -191,26 +181,13 @@ pub fn is_king_in_check(king_position: (u8, u8), color: PieceColor, board: Board
         })
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum CastleSide {
     KingSide,
     QueenSide,
 }
 
 impl CastleSide {
-    fn get_rook_initial_pos(&self, color: PieceColor) -> (u8, u8) {
-        match self {
-            CastleSide::KingSide => match color {
-                PieceColor::White => (7, 0),
-                PieceColor::Black => (7, 7),
-            },
-            CastleSide::QueenSide => match color {
-                PieceColor::White => (0, 0),
-                PieceColor::Black => (0, 7),
-            },
-        }
-    }
-
     fn squares_to_check(&self, color: PieceColor) -> [Option<(u8, u8)>; 4] {
         match self {
             CastleSide::KingSide => match color {
@@ -230,75 +207,58 @@ fn is_castling_possible(king: &Piece, side: CastleSide, board: Board) -> bool {
         return false;
     }
 
-    let checks = |side: CastleSide| -> bool {
-        // To check if the rook has moved.
-        if let Some((rook, _)) = board.iter().find(|(p, s)| {
-            p.kind == PieceKind::Rook && (s.x, s.y) == side.get_rook_initial_pos(king.color)
-        }) {
-            if rook.has_moved {
-                return false;
-            }
-        }
+    // To check if the rook has moved.
+    for (rook, _) in board
+        .iter()
+        .filter(|(p, _)| p.kind == PieceKind::Rook && p.color == king.color)
+    {
+        let rook_side = match rook.start_pos {
+            (0, 0) => CastleSide::QueenSide,
+            (0, 7) => CastleSide::QueenSide,
+            (7, 0) => CastleSide::KingSide,
+            (7, 7) => CastleSide::KingSide,
+            _ => CastleSide::QueenSide // Should not happen
+        };
 
-        // To check if the king or rook is blocked.
-        let mut is_blocked = false;
-        board.iter().for_each(|(_, sq)| {
-            side.squares_to_check(king.color)
-                .iter()
-                // to skip the king's initial position.
-                .skip(1)
-                .for_each(|&s| {
-                    if let Some((x, y)) = s {
-                        // if there is a piece in between the rook and king, they are blocked.
-                        if sq.x == x && sq.y == y {
-                            is_blocked = true;
-                        }
-                    }
-                });
-        });
-        if is_blocked {
+        if rook_side == side && rook.has_moved {
             return false;
         }
+    }
 
-        // To check if the king passes through a check.
-        let possible_king_positions = side.squares_to_check(king.color);
-        for possible_king_position in possible_king_positions {
-            if possible_king_position == None {
-                continue;
-            }
-            // the squares b1 and b8 need not be checked for king checks.
-            if [(1, 0), (1, 7)].contains(&possible_king_position.unwrap()) {
-                continue;
-            }
-            if is_king_in_check(possible_king_position.unwrap(), king.color, board) {
-                return false;
-            }
-        }
-
-        true
-    };
-
-    // Checking if the king passes through a check or if the king or the rook has moved or is blocked while castling.
-    let castling_checks_passed = match side {
-        CastleSide::KingSide => match king.color {
-            PieceColor::White => checks(side),
-            PieceColor::Black => checks(side),
-        },
-        CastleSide::QueenSide => match king.color {
-            PieceColor::White => checks(side),
-            PieceColor::Black => checks(side),
-        },
-    };
-
-    if !castling_checks_passed {
+    // To check if the king or rook is blocked.
+    let mut is_blocked = false;
+    board.iter().for_each(|(_, sq)| {
+        side.squares_to_check(king.color)
+            .iter()
+            // to skip the king's initial position.
+            .skip(1)
+            .for_each(|&s| {
+                if let Some((x, y)) = s {
+                    // if there is a piece in between the rook and king, they are blocked.
+                    if sq.x == x && sq.y == y {
+                        is_blocked = true;
+                    }
+                }
+            });
+    });
+    if is_blocked {
         return false;
     }
 
-    let rook_start_pos = side.get_rook_initial_pos(king.color);
+    // To check if the king passes through a check.
+    let possible_king_positions = side.squares_to_check(king.color);
+    for possible_king_position in possible_king_positions {
+        if possible_king_position == None {
+            continue;
+        }
+        // the squares b1 and b8 need not be checked for king checks.
+        if [(1, 0), (1, 7)].contains(&possible_king_position.unwrap()) {
+            continue;
+        }
+        if is_king_in_check(possible_king_position.unwrap(), king.color, board) {
+            return false;
+        }
+    }
 
-    let is_rook_at_start_pos = board
-        .iter()
-        .any(|(p, s)| p.kind == PieceKind::Rook && (s.x, s.y) == rook_start_pos);
-
-    is_rook_at_start_pos
+    true
 }

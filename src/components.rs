@@ -7,6 +7,7 @@ pub struct Piece {
     pub color: PieceColor,
     pub kind: PieceKind,
     pub has_moved: bool,
+    pub start_pos: (u8, u8),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
